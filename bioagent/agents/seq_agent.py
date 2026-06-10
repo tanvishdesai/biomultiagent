@@ -30,7 +30,6 @@ def translate(seq: str, frame: int = 0) -> str:
         dna = _to_dna(seq)[frame:]
         return str(Seq(dna).translate(to_stop=True))
     except ImportError:
-        # Manual codon table (standard genetic code)
         codon_table = {
             "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
             "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
@@ -63,15 +62,27 @@ def find_motifs(seq: str, pattern: str = "ATG") -> List[int]:
     return [m.start() for m in re.finditer(pattern, seq.upper())]
 
 
-def run(task: str, sequence: str = "", sequences: List[str] | None = None, **kwargs) -> Dict[str, Any]:
+def _intent_text(task: str, query: str) -> str:
+    """Combine task label and query words (strip embedded sequences first)."""
+    q = re.sub(r"\b[ACGTUN]{10,}\b", " ", query, flags=re.I)
+    return f"{task} {q}".lower()
+
+
+def run(
+    task: str,
+    sequence: str = "",
+    sequences: List[str] | None = None,
+    query: str = "",
+    **kwargs,
+) -> Dict[str, Any]:
     seq = sequence or (sequences[0] if sequences else kwargs.get("seq", ""))
     if not seq:
         return {"result": "No sequence provided.", "details": {}}
 
-    task_l = task.lower()
+    task_l = _intent_text(task, query or kwargs.get("query", ""))
     details: Dict[str, Any] = {"length": len(seq), "gc_percent": gc_content(seq)}
 
-    if "gc" in task_l or "content" in task_l:
+    if "gc" in task_l or "gc content" in task_l or "gc%" in task_l:
         return {
             "result": f"GC content: {details['gc_percent']}%",
             "details": details,
@@ -103,7 +114,6 @@ def run(task: str, sequence: str = "", sequences: List[str] | None = None, **kwa
             "details": details,
         }
 
-    # Default: full analysis
     translations = {f"frame{f}": translate(seq, f)[:80] for f in (0, 1, 2)}
     details["translations"] = translations
     return {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -103,7 +104,8 @@ def run(
     if not seq:
         return {"result": "No sequence provided.", "details": {}}
 
-    task_l = task.lower()
+    q = re.sub(r"\b[ACGTUN]{10,}\b", " ", kwargs.get("query", ""), flags=re.I)
+    task_l = f"{task} {q}".lower()
     orfs = find_orfs(seq)
 
     if "codon" in task_l:

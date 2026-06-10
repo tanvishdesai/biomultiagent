@@ -4,23 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
 class SessionMemory:
     """
-    Persists Q&A interactions per session using ChromaDB.
+    Persists Q&A interactions per session using ChromaDB PersistentClient.
     Falls back gracefully to an in-memory list when ChromaDB is unavailable.
     """
 
     def __init__(self, collection_name: str = "bio_session_memory") -> None:
         self._fallback: List[Dict[str, Any]] = []
         self._chroma_ok = False
+        persist_dir = Path(__file__).resolve().parents[2] / "data" / "chroma"
         try:
             import chromadb
-            self._client     = chromadb.Client()
+            self._client = chromadb.PersistentClient(path=str(persist_dir))
             self._collection = self._client.get_or_create_collection(collection_name)
-            self._chroma_ok  = True
+            self._chroma_ok = True
         except ImportError:
             pass
         except Exception:
@@ -60,7 +62,6 @@ class SessionMemory:
             except Exception:
                 pass
 
-        # Fallback: return last n items for this session
         session_docs = [
             r["document"]
             for r in self._fallback
@@ -79,7 +80,6 @@ class SessionMemory:
         ]
 
 
-# Module-level singleton
 _memory: Optional[SessionMemory] = None
 
 

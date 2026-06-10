@@ -34,7 +34,7 @@ Supervisor (LangGraph) — classify intent → route
 
 ## Kaggle Setup (Recommended — No Data Download Required)
 
-This project works **fully offline** — all agents use public APIs (PubMed Entrez) or compute locally (no external datasets needed for sequence analysis).
+Seq/align/annot/phylo agents run locally. LitAgent requires network access to NCBI PubMed (Bio.Entrez). Set `ENTREZ_EMAIL` to your real email before running.
 
 ```python
 !pip install langgraph langchain-community biopython flask chromadb -q

@@ -1,4 +1,4 @@
-"""PhyloAgent — Neighbor-joining phylogenetic tree construction and ASCII rendering."""
+"""PhyloAgent — phylogenetic tree construction via Bio.Phylo (Neighbor-Joining)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ def _to_dna(seq: str) -> str:
 
 
 def _hamming_distance(s1: str, s2: str) -> float:
-    """Normalised Hamming distance between two sequences (same length)."""
     n = min(len(s1), len(s2))
     if n == 0:
         return 0.0
@@ -29,70 +28,37 @@ def _distance_matrix(seqs: List[str]) -> List[List[float]]:
     return d
 
 
-def _upgma_tree(seqs: List[str], labels: List[str]) -> str:
-    """Build a simple UPGMA-style Newick string from pairwise distances."""
-    if len(seqs) < 2:
-        return labels[0] if labels else ""
-    dist = _distance_matrix([_to_dna(s) for s in seqs])
-    n = len(seqs)
-    nodes = list(labels)
+def _nj_tree(seqs: List[str], labels: List[str]) -> tuple[str, str]:
+    """Build NJ tree with Bio.Phylo; return (newick, ascii)."""
+    import sys
+    from io import StringIO
 
-    while len(nodes) > 1:
-        # Find minimum distance pair
-        min_d = float("inf")
-        mi, mj = 0, 1
-        for i in range(len(nodes)):
-            for j in range(i + 1, len(nodes)):
-                if dist[i][j] < min_d:
-                    min_d, mi, mj = dist[i][j], i, j
-        merged = f"({nodes[mi]}:{min_d/2:.3f},{nodes[mj]}:{min_d/2:.3f})"
-        nodes = [merged] + [nodes[k] for k in range(len(nodes)) if k not in (mi, mj)]
-        # Update distances (average linkage)
-        new_dist = [[0.0] * len(nodes) for _ in range(len(nodes))]
-        old_indices = [k for k in range(len(dist)) if k not in (mi, mj)]
-        for ni, oi in enumerate(old_indices):
-            avg = (dist[mi][oi] + dist[mj][oi]) / 2
-            new_dist[0][ni + 1] = avg
-            new_dist[ni + 1][0] = avg
-        for ni, oi in enumerate(old_indices):
-            for nj, oj in enumerate(old_indices):
-                new_dist[ni + 1][nj + 1] = dist[oi][oj]
-        dist = new_dist
+    from Bio import Phylo
+    from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
 
-    return nodes[0] + ";"
+    dm = DistanceMatrix(labels, _distance_matrix([_to_dna(s) for s in seqs]))
+    tree = DistanceTreeConstructor().nj(dm)
 
+    buf = StringIO()
+    Phylo.write(tree, buf, "newick")
+    newick = buf.getvalue().strip()
 
-def _ascii_tree(seqs: List[str], labels: List[str]) -> str:
-    """Minimal ASCII dendrogram from pairwise distances."""
-    if len(seqs) < 2:
-        return labels[0] if labels else ""
-    dist = _distance_matrix([_to_dna(s) for s in seqs])
-
-    lines = []
-    used = [False] * len(seqs)
-    for i in range(len(seqs)):
-        if used[i]:
-            continue
-        # Find closest neighbour
-        min_d = float("inf")
-        partner = i
-        for j in range(len(seqs)):
-            if j != i and not used[j] and dist[i][j] < min_d:
-                min_d = dist[i][j]
-                partner = j
-        if partner != i and not used[partner]:
-            lines.append(f"  ┌─ {labels[i]}")
-            lines.append(f"  └─ {labels[partner]}  (d={min_d:.3f})")
-            used[i] = used[partner] = True
-        else:
-            lines.append(f"  ── {labels[i]}")
-    return "\n".join(lines)
+    ascii_buf = StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = ascii_buf
+    try:
+        Phylo.draw_ascii(tree)
+    finally:
+        sys.stdout = old_stdout
+    ascii_art = ascii_buf.getvalue().strip() or newick
+    return newick, ascii_art
 
 
 def run(
     task: str,
     sequences: Optional[List[str]] = None,
     labels: Optional[List[str]] = None,
+    query: str = "",
     **kwargs,
 ) -> Dict[str, Any]:
     seqs = sequences or kwargs.get("seqs", [])
@@ -103,12 +69,14 @@ def run(
         }
 
     lbls = labels or [f"Seq{i+1}" for i in range(len(seqs))]
-    newick = _upgma_tree(seqs, lbls)
-    ascii_art = _ascii_tree(seqs, lbls)
+    try:
+        newick, ascii_art = _nj_tree(seqs, lbls)
+    except Exception as exc:
+        return {"result": f"Phylogeny failed: {exc}", "error": str(exc)}
 
     dist_matrix = _distance_matrix([_to_dna(s) for s in seqs])
     return {
-        "result": f"Phylogenetic tree ({len(seqs)} sequences, UPGMA):\n{ascii_art}",
+        "result": f"Neighbor-joining tree ({len(seqs)} sequences):\n{ascii_art}",
         "newick":       newick,
         "ascii_tree":   ascii_art,
         "dist_matrix":  [[round(d, 4) for d in row] for row in dist_matrix],

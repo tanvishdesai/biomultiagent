@@ -76,7 +76,7 @@ def _llm_classify(query: str) -> tuple[str, list[str]]:
 
 def _extract_sequences(query: str) -> List[str]:
     """Extract DNA/RNA sequences from query text (heuristic)."""
-    return re.findall(r'\b([ACGTUN]{15,})\b', query.upper())
+    return re.findall(r'\b([ACGTUN]{10,})\b', query.upper())
 
 
 # ─── LangGraph nodes ──────────────────────────────────────────────────────────
@@ -113,6 +113,15 @@ def route_node(state: BioAgentState) -> str:
     return f"run_{intent}"
 
 
+def _augment_query_with_memory(query: str, state: BioAgentState) -> str:
+    """Prepend prior session context when available."""
+    mem = state.get("memory_context") or []
+    if not mem:
+        return query
+    snippets = "\n".join(m.get("text", "") for m in mem[:2])
+    return f"Session context:\n{snippets}\n\nCurrent query: {query}"
+
+
 def _run_single_agent(intent: str, state: BioAgentState) -> Dict[str, Any]:
     """Dispatch to the appropriate specialist agent."""
     runner = AGENTS.get(intent)
@@ -120,7 +129,7 @@ def _run_single_agent(intent: str, state: BioAgentState) -> Dict[str, Any]:
         return {"result": f"No agent available for intent '{intent}'."}
     try:
         sequences = state.get("sequences", [])
-        query     = state["query"]
+        query     = _augment_query_with_memory(state["query"], state)
         if intent == "literature":
             return runner(task=intent, query=query)
         elif intent in ("align", "phylo"):

@@ -1,7 +1,11 @@
-"""AlignAgent — pairwise and multiple sequence alignment."""
+"""AlignAgent — pairwise and multiple sequence alignment (BioPython / MUSCLE)."""
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -32,34 +36,42 @@ def pairwise_align(seq1: str, seq2: str) -> Dict[str, Any]:
             "aligned_a":  str(best[0]),
             "aligned_b":  str(best[1]),
         }
-    except ImportError:
-        # Naive needleman-wunsch with match=1, mismatch/gap=0
-        score = sum(a == b for a, b in zip(s1, s2))
-        return {
-            "result": f"Simple alignment (BioPython unavailable): {score} matching bases",
-            "score":  float(score),
-        }
+    except ImportError as exc:
+        raise RuntimeError("BioPython is required for sequence alignment.") from exc
 
 
-def simple_star_msa(sequences: List[str]) -> str:
-    """Progressive star MSA against the first (reference) sequence."""
-    if not sequences:
-        return ""
-    if len(sequences) == 1:
-        return sequences[0]
-    ref = _to_dna(sequences[0])
-    aligned = [ref]
-    for seq in sequences[1:]:
-        result = pairwise_align(ref, seq)
-        aligned.append(result.get("aligned_b", _to_dna(seq)))
-    max_len = max(len(s) for s in aligned)
-    return "\n".join(s + "-" * (max_len - len(s)) for s in aligned)
+def _write_fasta(path: Path, sequences: List[str], labels: List[str]) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for label, seq in zip(labels, sequences):
+            fh.write(f">{label}\n{_to_dna(seq)}\n")
+
+
+def muscle_msa(sequences: List[str], labels: Optional[List[str]] = None) -> str:
+    """Run MUSCLE v3+ if installed; raises if unavailable."""
+    muscle = shutil.which("muscle")
+    if not muscle:
+        raise RuntimeError(
+            "MUSCLE not found on PATH. Install MUSCLE or use ≤2 sequences for pairwise alignment."
+        )
+    lbls = labels or [f"seq{i+1}" for i in range(len(sequences))]
+    with tempfile.TemporaryDirectory() as tmp:
+        inp = Path(tmp) / "in.fasta"
+        out = Path(tmp) / "out.fasta"
+        _write_fasta(inp, sequences, lbls)
+        subprocess.run(
+            [muscle, "-align", str(inp), "-output", str(out)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return out.read_text(encoding="utf-8")
 
 
 def run(
     task: str,
     sequences: Optional[List[str]] = None,
     sequence: str = "",
+    query: str = "",
     **kwargs,
 ) -> Dict[str, Any]:
     seqs = sequences or kwargs.get("seqs", [])
@@ -72,15 +84,20 @@ def run(
             "details": {},
         }
 
-    task_l = task.lower()
+    task_l = f"{task} {query}".lower()
     if len(seqs) > 2 or "msa" in task_l or "multiple" in task_l:
-        msa = simple_star_msa(seqs)
-        lines = msa.split("\n")
-        preview = "\n".join(lines[:4]) + (f"\n… (+{len(lines)-4} more)" if len(lines) > 4 else "")
-        return {
-            "result": f"MSA ({len(seqs)} sequences):\n{preview}",
-            "msa":    msa,
-            "n_seqs": len(seqs),
-        }
+        try:
+            msa = muscle_msa(seqs)
+            lines = [ln for ln in msa.splitlines() if not ln.startswith(">")]
+            preview = "\n".join(lines[:4])
+            if len(lines) > 4:
+                preview += f"\n… (+{len(lines)-4} more)"
+            return {
+                "result": f"MUSCLE MSA ({len(seqs)} sequences):\n{preview}",
+                "msa":    msa,
+                "n_seqs": len(seqs),
+            }
+        except RuntimeError as exc:
+            return {"result": str(exc), "error": str(exc)}
 
     return pairwise_align(seqs[0], seqs[1])

@@ -4,7 +4,7 @@ BioMultiAgent Integration Demo
 End-to-end compound query demonstration.
 Run: python integration_demo.py
 
-No Kaggle or external data needed — works fully offline.
+Sequence/annotation agents run locally; LitAgent requires network access to PubMed (NCBI Entrez).
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ def main() -> None:
     print("=" * 70)
 
     for i, query in enumerate(DEMO_QUERIES, 1):
-        print(f"\n{'─'*70}")
-        print(f"Query {i}: {query[:80]}{'…' if len(query) > 80 else ''}")
-        print("─" * 70)
+        print(f"\n{'-'*70}")
+        print(f"Query {i}: {query[:80]}{'...' if len(query) > 80 else ''}")
+        print("-" * 70)
 
         state = run_bio_agent(query)
 
